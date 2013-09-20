@@ -1,20 +1,18 @@
 <?php
 
-namespace Oro\Bundle\SecurityBundle\Tests\Unit\ORM;
+namespace Oro\Bundle\SecurityBundle\Tests\Unit\ORM\SqlFilter;
 
 use Oro\Bundle\SecurityBundle\Acl\AccessLevel;
 use Oro\Bundle\SecurityBundle\Acl\Domain\ObjectIdAccessor;
-use Oro\Bundle\SecurityBundle\ORM\OwnershipSqlFilterBuilder;
+use Oro\Bundle\SecurityBundle\ORM\SqlFilter\OwnershipFilterBuilder;
 use Oro\Bundle\EntityBundle\Owner\Metadata\OwnershipMetadata;
-use Oro\Bundle\SecurityBundle\Tests\Unit\Acl\Domain\Fixtures\Entity\BusinessUnit;
-use Oro\Bundle\SecurityBundle\Tests\Unit\Acl\Domain\Fixtures\Entity\Organization;
-use Oro\Bundle\SecurityBundle\Tests\Unit\Acl\Domain\Fixtures\Entity\TestEntity;
 use Oro\Bundle\SecurityBundle\Tests\Unit\Acl\Domain\Fixtures\Entity\User;
 use Oro\Bundle\SecurityBundle\Tests\Unit\Acl\Domain\Fixtures\OwnershipMetadataProviderStub;
 use Oro\Bundle\SecurityBundle\Owner\OwnerTree;
+use Symfony\Component\Security\Acl\Domain\ObjectIdentity;
 use Oro\Bundle\SecurityBundle\Acl\Domain\OneShotIsGrantedObserver;
 
-class OwnershipSqlFilterBuilderTest extends \PHPUnit_Framework_TestCase
+class OwnershipFilterBuilderTest extends \PHPUnit_Framework_TestCase
 {
     const BUSINESS_UNIT = 'Oro\Bundle\SecurityBundle\Tests\Unit\Acl\Domain\Fixtures\Entity\BusinessUnit';
     const ORGANIZATION = 'Oro\Bundle\SecurityBundle\Tests\Unit\Acl\Domain\Fixtures\Entity\Organization';
@@ -22,7 +20,7 @@ class OwnershipSqlFilterBuilderTest extends \PHPUnit_Framework_TestCase
     const TEST_ENTITY = 'Oro\Bundle\SecurityBundle\Tests\Unit\Acl\Domain\Fixtures\Entity\TestEntity';
 
     /**
-     * @var OwnershipSqlFilterBuilder
+     * @var OwnershipFilterBuilder
      */
     private $builder;
 
@@ -42,6 +40,14 @@ class OwnershipSqlFilterBuilderTest extends \PHPUnit_Framework_TestCase
     {
         $this->tree = new OwnerTree();
 
+        $entityMetadataProvider =
+            $this->getMockBuilder('Oro\Bundle\SecurityBundle\Metadata\EntitySecurityMetadataProvider')
+                ->disableOriginalConstructor()
+                ->getMock();
+        $entityMetadataProvider->expects($this->any())
+            ->method('isProtectedEntity')
+            ->will($this->returnValue(true));
+
         $this->metadataProvider = new OwnershipMetadataProviderStub($this);
         $this->metadataProvider->setMetadata(
             $this->metadataProvider->getOrganizationClass(),
@@ -57,45 +63,54 @@ class OwnershipSqlFilterBuilderTest extends \PHPUnit_Framework_TestCase
         );
 
         $this->securityContext = $this->getMock('Symfony\Component\Security\Core\SecurityContextInterface');
+        $securityContextLink =
+            $this->getMockBuilder('Oro\Bundle\EntityConfigBundle\DependencyInjection\Utils\ServiceLink')
+                ->disableOriginalConstructor()
+                ->getMock();
+        $securityContextLink->expects($this->any())->method('getService')
+            ->will($this->returnValue($this->securityContext));
         $this->aclVoter = $this->getMockBuilder('Oro\Bundle\SecurityBundle\Acl\Voter\AclVoter')
             ->disableOriginalConstructor()
             ->getMock();
 
-        $this->builder = new OwnershipSqlFilterBuilder(
-            $this->securityContext,
-            $this->aclVoter,
+        $this->builder = new OwnershipFilterBuilder(
+            $securityContextLink,
             new ObjectIdAccessor(),
+            $entityMetadataProvider,
             $this->metadataProvider,
-            $this->tree
+            $this->tree,
+            $this->aclVoter
         );
     }
 
     private function buildTestTree()
     {
         /**
-         * org1  org2  org3       org4
-         *             |          |
-         * bu1   bu2   bu3        bu4
-         *       |     |          |
-         *       |     +-bu31     |
-         *       |     | |        |
-         *       |     | +-user31 |
-         *       |     |          |
-         * user1 user2 user3      user4
-         *                        |
-         *                        +-bu3
-         *                        +-bu4
-         *                          |
-         *                          +-bu41
-         *                            |
-         *                            +-bu411
-         *                              |
-         *                              +-user411
+         * org1  org2     org3         org4
+         *                |            |
+         *  bu1   bu2     +-bu3        +-bu4
+         *        |       | |            |
+         *        |       | +-bu31       |
+         *        |       | | |          |
+         *        |       | | +-user31   |
+         *        |       | |            |
+         *  user1 +-user2 | +-user3      +-user4
+         *                |                |
+         *                +-bu3a           +-bu3
+         *                  |              +-bu4
+         *                  +-bu3a1          |
+         *                                   +-bu41
+         *                                     |
+         *                                     +-bu411
+         *                                       |
+         *                                       +-user411
          */
         $this->tree->addBusinessUnit('bu1', null);
         $this->tree->addBusinessUnit('bu2', null);
         $this->tree->addBusinessUnit('bu3', 'org3');
         $this->tree->addBusinessUnit('bu31', 'org3');
+        $this->tree->addBusinessUnit('bu3a', 'org3');
+        $this->tree->addBusinessUnit('bu3a1', 'org3');
         $this->tree->addBusinessUnit('bu4', 'org4');
         $this->tree->addBusinessUnit('bu41', 'org4');
         $this->tree->addBusinessUnit('bu411', 'org4');
@@ -104,6 +119,8 @@ class OwnershipSqlFilterBuilderTest extends \PHPUnit_Framework_TestCase
         $this->tree->addBusinessUnitRelation('bu2', null);
         $this->tree->addBusinessUnitRelation('bu3', null);
         $this->tree->addBusinessUnitRelation('bu31', 'bu3');
+        $this->tree->addBusinessUnitRelation('bu3a', null);
+        $this->tree->addBusinessUnitRelation('bu3a1', 'bu3a');
         $this->tree->addBusinessUnitRelation('bu4', null);
         $this->tree->addBusinessUnitRelation('bu41', 'bu4');
         $this->tree->addBusinessUnitRelation('bu411', 'bu41');
@@ -143,7 +160,7 @@ class OwnershipSqlFilterBuilderTest extends \PHPUnit_Framework_TestCase
 
         /** @var OneShotIsGrantedObserver $aclObserver */
         $aclObserver = null;
-        $this->aclVoter->expects($this->once())
+        $this->aclVoter->expects($this->any())
             ->method('addOneShotIsGrantedObserver')
             ->will(
                 $this->returnCallback(
@@ -160,13 +177,13 @@ class OwnershipSqlFilterBuilderTest extends \PHPUnit_Framework_TestCase
         $token->expects($this->any())
             ->method('getUser')
             ->will($this->returnValue($user));
-        $this->securityContext->expects($this->once())
+        $this->securityContext->expects($this->any())
             ->method('isGranted')
             ->with($this->equalTo('VIEW'), $this->equalTo('entity:' . $targetEntityClassName))
             ->will($this->returnValue($isGranted));
         $this->securityContext->expects($this->any())
             ->method('getToken')
-            ->will($this->returnValue($token));
+            ->will($this->returnValue($userId ? $token : null));
 
         $this->assertEquals(
             $expectedConstraint,
@@ -174,12 +191,27 @@ class OwnershipSqlFilterBuilderTest extends \PHPUnit_Framework_TestCase
         );
     }
 
+    public function testGetUserIdWithNonLoginUser()
+    {
+        $token = $this->getMock('Symfony\Component\Security\Core\Authentication\Token\TokenInterface');
+        $token->expects($this->any())
+            ->method('getUser')
+            ->will($this->returnValue('anon'));
+        $this->securityContext->expects($this->any())
+            ->method('getToken')
+            ->will($this->returnValue($token));
+        $this->assertNull($this->builder->getUserId());
+    }
+
+    /**
+     * @SuppressWarnings(PHPMD.ExcessiveMethodLength)
+     */
     public static function buildFilterConstraintProvider()
     {
         return array(
-            array('', false, AccessLevel::UNDEFINED, null, self::TEST_ENTITY, '', '1 = 0'),
-            array('', false, AccessLevel::UNDEFINED, null, self::TEST_ENTITY, 't', "'t' = ''"),
-            array('', true, AccessLevel::UNDEFINED, null, '\stdClass', '', ''),
+            array('', false, AccessLevel::NONE_LEVEL, null, self::TEST_ENTITY, '', ''),
+            array('', false, AccessLevel::NONE_LEVEL, null, self::TEST_ENTITY, 't', ''),
+            array('', true, AccessLevel::NONE_LEVEL, null, '\stdClass', '', ''),
             array('user4', true, AccessLevel::SYSTEM_LEVEL, null, self::TEST_ENTITY, '', ''),
             array('user4', true, AccessLevel::SYSTEM_LEVEL, 'ORGANIZATION', self::TEST_ENTITY, '', ''),
             array('user4', true, AccessLevel::SYSTEM_LEVEL, 'BUSINESS_UNIT', self::TEST_ENTITY, '', ''),
@@ -201,7 +233,7 @@ class OwnershipSqlFilterBuilderTest extends \PHPUnit_Framework_TestCase
                 'BUSINESS_UNIT',
                 self::TEST_ENTITY,
                 '',
-                'owner_id IN (bu3,bu4,bu31,bu41,bu411)'
+                'owner_id IN (bu3,bu31,bu3a,bu3a1,bu4,bu41,bu411)'
             ),
             array(
                 'user4',
@@ -212,6 +244,7 @@ class OwnershipSqlFilterBuilderTest extends \PHPUnit_Framework_TestCase
                 '',
                 'owner_id IN (user3,user31,user4,user41,user411)'
             ),
+            array('user4', true, AccessLevel::GLOBAL_LEVEL, null, self::ORGANIZATION, '', 'id IN (org3,org4)'),
             array('user4', true, AccessLevel::DEEP_LEVEL, null, self::TEST_ENTITY, '', ''),
             array('user4', true, AccessLevel::DEEP_LEVEL, 'ORGANIZATION', self::TEST_ENTITY, '', '1 = 0'),
             array(
@@ -231,6 +264,15 @@ class OwnershipSqlFilterBuilderTest extends \PHPUnit_Framework_TestCase
                 self::TEST_ENTITY,
                 '',
                 'owner_id IN (user3,user4,user31,user41,user411)'
+            ),
+            array(
+                'user4',
+                true,
+                AccessLevel::DEEP_LEVEL,
+                null,
+                self::BUSINESS_UNIT,
+                '',
+                'id IN (bu3,bu4,bu31,bu41,bu411)'
             ),
             array('user4', true, AccessLevel::LOCAL_LEVEL, null, self::TEST_ENTITY, '', ''),
             array('user4', true, AccessLevel::LOCAL_LEVEL, 'ORGANIZATION', self::TEST_ENTITY, '', '1 = 0'),
@@ -252,6 +294,7 @@ class OwnershipSqlFilterBuilderTest extends \PHPUnit_Framework_TestCase
                 '',
                 'owner_id IN (user3,user4)'
             ),
+            array('user4', true, AccessLevel::LOCAL_LEVEL, null, self::BUSINESS_UNIT, '', 'id IN (bu3,bu4)'),
             array('user4', true, AccessLevel::BASIC_LEVEL, null, self::TEST_ENTITY, '', ''),
             array('user4', true, AccessLevel::BASIC_LEVEL, 'ORGANIZATION', self::TEST_ENTITY, '', '1 = 0'),
             array('user4', true, AccessLevel::BASIC_LEVEL, 'BUSINESS_UNIT', self::TEST_ENTITY, '', '1 = 0'),
@@ -264,6 +307,7 @@ class OwnershipSqlFilterBuilderTest extends \PHPUnit_Framework_TestCase
                 '',
                 'owner_id = user4'
             ),
+            array('user4', true, AccessLevel::BASIC_LEVEL, null, self::USER, '', 'id = user4'),
         );
     }
 }
