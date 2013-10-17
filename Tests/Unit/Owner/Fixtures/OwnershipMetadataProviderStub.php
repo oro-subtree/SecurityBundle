@@ -1,6 +1,6 @@
 <?php
 
-namespace Oro\Bundle\SecurityBundle\Tests\Unit\Acl\Domain\Fixtures;
+namespace Oro\Bundle\SecurityBundle\Tests\Unit\Owner\Fixtures;
 
 use Oro\Bundle\SecurityBundle\Owner\Metadata\OwnershipMetadataProvider;
 use Oro\Bundle\SecurityBundle\Owner\Metadata\OwnershipMetadata;
@@ -16,23 +16,23 @@ class OwnershipMetadataProviderStub extends OwnershipMetadataProvider
             ->getMock();
         parent::__construct(
             array(
-                'organization' => 'Oro\Bundle\SecurityBundle\Tests\Unit\Acl\Domain\Fixtures\Entity\Organization',
-                'business_unit' => 'Oro\Bundle\SecurityBundle\Tests\Unit\Acl\Domain\Fixtures\Entity\BusinessUnit',
-                'user' => 'Oro\Bundle\SecurityBundle\Tests\Unit\Acl\Domain\Fixtures\Entity\User'
+                'organization' => 'AcmeBundle\Entity\Organization',
+                'business_unit' => 'AcmeBundle\Entity\BusinessUnit',
+                'user' => 'AcmeBundle\Entity\User'
             ),
             $configProvider
         );
     }
 
-    public function getMetadata($className)
+    public function getMetadata($entityName)
     {
-        return isset($this->metadata[$className])
-            ? $this->metadata[$className]
+        return isset($this->metadata[$entityName])
+            ? $this->metadata[$entityName]
             : new OwnershipMetadata();
     }
 
-    public function setMetadata($className, OwnershipMetadata $metadata)
+    public function setMetadata($entityName, OwnershipMetadata $metadata)
     {
-        $this->metadata[$className] = $metadata;
+        $this->metadata[$entityName] = $metadata;
     }
 }
