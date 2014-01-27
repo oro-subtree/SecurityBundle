@@ -1,6 +1,6 @@
 <?php
 
-namespace Oro\Bundle\SecurityBundle\DataFixtures\Migrations\ORM\v1_0;
+namespace Oro\Bundle\SecurityBundle\Migrations\DataFixtures\ORM\v1_0;
 
 use Doctrine\Common\DataFixtures\AbstractFixture;
 use Doctrine\Common\Persistence\ObjectManager;
@@ -28,7 +28,7 @@ class LoadAclRoles extends AbstractFixture implements DependentFixtureInterface,
      */
     public function getDependencies()
     {
-        return ['Oro\Bundle\UserBundle\DataFixtures\Migrations\ORM\v1_0\LoadRolesData'];
+        return ['Oro\Bundle\UserBundle\Migrations\DataFixtures\ORM\v1_0\LoadRolesData'];
     }
 
     /**
