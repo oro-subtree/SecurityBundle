@@ -1,6 +1,6 @@
 <?php
 
-namespace Oro\Bundle\SecurityBundle\Migrations\Schemas\v1_0;
+namespace Oro\Bundle\SecurityBundle\Migrations\Schema\v1_0;
 
 use Doctrine\DBAL\Schema\Schema;
 use Symfony\Component\DependencyInjection\ContainerInterface;
